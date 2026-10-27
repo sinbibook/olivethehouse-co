@@ -42,6 +42,8 @@
     this.mapFooter();
     // SEO: homepage.seo → title + description/keywords + 네이버/구글 사이트 인증 (전 페이지 공통)
     this.updateMetaTags();
+    // 예약하기·YBS·SNS 노출이 정해진 뒤라야 메뉴 오른쪽 여유(--hd-reserve)가 맞다
+    this.watchScrollLogo();
   };
 
   // 페이지 enabled 여부 (sections[0].enabled === false 이면 비활성)
@@ -118,6 +120,57 @@
     document.querySelectorAll('.logo, .logo2').forEach(function (host) {
       self.applyLogo(host, logoUrl, name, nameEn);
     });
+  };
+
+  // 스크롤 상태(.header.on) 숙소명(.logo2) 글자 맞춤.
+  // CSS 가 긴 숙소명 뒤로 메뉴를 밀고(style.css "스크롤 상태 긴 숙소명"), 그래도 메뉴가
+  // 예약하기·YBS·SNS 자리(.hd_lnb margin-right)를 침범하면 숙소명 글자를 줄여 한 줄에 맞춘다.
+  // 넓은 화면·짧은 이름은 넘치지 않으므로 CSS 글자 크기 그대로다.
+  // 폭(리사이즈·.on 전환)·로고 표시(fadeIn)·웹폰트 로드가 모두 크기 변화라 ResizeObserver 하나로 받는다.
+  HeaderFooterMapper.prototype.SCROLL_LOGO_MIN = 14;
+
+  HeaderFooterMapper.prototype.fitScrollLogo = function () {
+    var header = document.querySelector('.header');
+    var inner = header && header.querySelector('.hd_inner');
+    var link = header && header.querySelector('.logo2 a');
+    var text = link && link.querySelector('.logo_text');
+    var lnb = header && header.querySelector('.hd_lnb');
+    if (!inner || !text || !lnb) return;
+
+    link.style.fontSize = '';
+    if (!header.classList.contains('on') || !lnb.offsetWidth || !text.offsetWidth) return;
+
+    var size = parseFloat(getComputedStyle(link).fontSize);
+    for (var i = 0; i < 20; i++) {
+      var over =
+        lnb.getBoundingClientRect().right +
+        parseFloat(getComputedStyle(lnb).marginRight) -
+        inner.getBoundingClientRect().right;
+      if (over <= 0.5) return;
+      var width = text.getBoundingClientRect().width;
+      var next = Math.min(size - 1, Math.floor((size * (width - over)) / width));
+      next = Math.max(this.SCROLL_LOGO_MIN, next);
+      if (next >= size) return;
+      size = next;
+      link.style.fontSize = size + 'px';
+    }
+  };
+
+  HeaderFooterMapper.prototype.watchScrollLogo = function () {
+    var self = this;
+    var inner = document.querySelector('.header .hd_inner');
+    var logo2 = document.querySelector('.header .logo2');
+    if (!inner || !logo2) return;
+    // 미리보기는 데이터가 바뀔 때마다 mapPage 를 다시 부르므로 이전 관찰을 끊는다
+    if (global.__hdScrollLogoObserver) global.__hdScrollLogoObserver.disconnect();
+    if (typeof ResizeObserver === 'undefined') return;
+    var observer = new ResizeObserver(function () {
+      self.fitScrollLogo();
+    });
+    observer.observe(inner);
+    observer.observe(logo2);
+    global.__hdScrollLogoObserver = observer;
+    self.fitScrollLogo();
   };
 
   // MAPPER: favicon ← homepage.images[0].logo[isSelected].url
