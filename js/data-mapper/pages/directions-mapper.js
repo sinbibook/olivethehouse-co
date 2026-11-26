@@ -88,38 +88,83 @@
     });
   };
 
-  // MAPPER: notice → .map_info dl (dt 제목 + dd 본문)
+  // MAPPER: notice → .map_info dl (dt 제목 + dd 본문) × N
   //
-  // 원본은 `승용차 이용 시` dt 아래에 내비 안내와 지번/도로명 주소를 넣었다
-  // (`대중교통 이용 시` dt/dd 는 주석 처리된 상태였다).
+  // 원본은 `승용차 이용 시` dt/dd 다음에 `대중교통 이용 시` dt/dd 가 이어진다
+  // (처음 참고한 사이트는 대중교통 쪽이 주석 처리돼 있었지만, 돌궁펜션처럼 살아 있는 곳도 있다).
+  // CSS 도 `.map_info dl dd + dt` 로 여러 항목을 전제한다.
   //
-  // 우리 notice 는 { title, description } 하나다.
-  //   description = "지번 : …\n도로명 : …"
-  // 제목이 비면 원본 문구를 기본값으로 쓴다.
+  // 우리 notice 는 { title, description } 하나라 G/E2 의 다중 블록 규약을 따른다.
+  //
+  //   description = "※ 네비게이션에 …\n\n지번주소 : …\n도로명주소 : …
+  //                  \n\n대중교통 이용 시\n가평역 정류장 …"
+  //
+  // - notice.title 이 첫 블록 제목이다 (첫 블록 본문에는 제목 줄이 없다)
+  // - 빈 줄 뒤 덩어리의 첫 줄이 제목처럼 생겼고(isNoticeTitle) 본문 줄이 이어지면 새 블록이다
+  // - 그 밖의 빈 줄은 원본 본문 안의 줄바꿈(<br><br>)이라 같은 블록에 붙인다
+  //   (돌궁펜션 승용차 안내가 "※ 안내\n\n지번주소 : …" 다)
   //
   // 본문이 아예 없으면 dl 째 숨긴다 — 제목만 남으면 빈 항목이 된다.
   DirectionsMapper.prototype.mapNotice = function () {
-    var notice = this.getSection().notice || {};
-    var title = this.firstText(notice.title, '승용차 이용 시');
-    var body = this.cleanText(notice.description);
+    var blocks = this.parseNoticeBlocks();
+    var hasBody = blocks.some(function (b) {
+      return b.body;
+    });
 
     var self = this;
     document.querySelectorAll('[data-directions-notice]').forEach(function (dl) {
       dl.innerHTML = '';
-      if (!body) {
+      if (!hasBody) {
         dl.style.display = 'none';
         return;
       }
       dl.style.display = '';
 
-      var dt = document.createElement('dt');
-      dt.textContent = title;
-      var dd = document.createElement('dd');
-      dd.innerHTML = self.nl2br(body);
-
-      dl.appendChild(dt);
-      dl.appendChild(dd);
+      blocks.forEach(function (block) {
+        var dt = document.createElement('dt');
+        dt.textContent = block.title;
+        var dd = document.createElement('dd');
+        dd.innerHTML = self.nl2br(block.body);
+        dl.appendChild(dt);
+        dl.appendChild(dd);
+      });
     });
+  };
+
+  DirectionsMapper.prototype.DEFAULT_NOTICE_TITLE = '승용차 이용 시';
+
+  // "대중교통 이용 시" 같은 짧은 한 줄. ※ 안내문이나 "지번주소 : …" 는 제목이 아니다.
+  DirectionsMapper.prototype.isNoticeTitle = function (line) {
+    var s = String(line || '').trim();
+    if (!s || s.length > 20) return false;
+    return !/^※/.test(s) && s.indexOf(':') === -1;
+  };
+
+  DirectionsMapper.prototype.parseNoticeBlocks = function () {
+    var self = this;
+    var notice = this.getSection().notice || {};
+    var chunks = this.cleanText(notice.description)
+      .split(/\n\s*\n/)
+      .map(function (c) {
+        return c.trim();
+      })
+      .filter(Boolean);
+
+    var blocks = [];
+    chunks.forEach(function (chunk) {
+      var lines = chunk.split('\n');
+      if (blocks.length && lines.length > 1 && self.isNoticeTitle(lines[0])) {
+        blocks.push({ title: lines.shift().trim(), body: lines.join('\n').trim() });
+        return;
+      }
+      if (!blocks.length) {
+        blocks.push({ title: self.firstText(notice.title, self.DEFAULT_NOTICE_TITLE), body: chunk });
+        return;
+      }
+      var last = blocks[blocks.length - 1];
+      last.body = last.body ? last.body + '\n\n' + chunk : chunk;
+    });
+    return blocks;
   };
 
   // ── 지도 ────────────────────────────────────────────────
